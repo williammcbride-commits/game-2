@@ -1,18 +1,90 @@
-## Improved Lobby System
+// server.js
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
 
-### Features:
-1. **Play Button**: Start the game with a single click.
-2. **Host Setup Screen**: Easy configuration for hosting games.
-3. **Game Code Generation**: Unique codes generated for each game session.
-4. **Join Functionality**: Players can join using game codes.
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
 
-### Description:
-The improved lobby system enhances user experience by providing a straightforward interface for players to host and join games. The Play button simplifies the initiation process, while the host setup screen allows for seamless configuration. Game codes are generated automatically, ensuring that players can quickly join their desired sessions.
+let rooms = {};
 
-### How to Use:
-1. Click the Play button to host or join a game.
-2. If hosting, follow the on-screen instructions to set up your game.
-3. Share the generated game code with friends.
-4. To join a game, enter the game code provided by the host.
+app.use(express.static('public'));
 
-This update aims to make online gaming more accessible and enjoyable for all players!
+app.get('/createRoom', (req, res) => {
+    const roomCode = Math.random().toString(36).substring(2, 8);
+    rooms[roomCode] = { players: [], host: '' };
+    res.json({ roomCode });
+});
+
+io.on('connection', (socket) => {
+    socket.on('joinRoom', ({ roomCode, nickname }) => {
+        socket.join(roomCode);
+        rooms[roomCode].players.push(nickname);
+        io.to(roomCode).emit('playerUpdate', rooms[roomCode].players);
+    });
+
+    socket.on('host', (roomCode) => {
+        rooms[roomCode].host = socket.id;
+    });
+
+    socket.on('disconnect', () => {
+        for (let roomCode in rooms) {
+            const index = rooms[roomCode].players.indexOf(socket.id);
+            if (index !== -1) {
+                rooms[roomCode].players.splice(index, 1);
+                io.to(roomCode).emit('playerUpdate', rooms[roomCode].players);
+            }
+        }
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
+
+// index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Lobby</title>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script>
+        let socket;
+        let roomCode;
+
+        function createRoom() {
+            fetch('/createRoom').then(res => res.json()).then(data => {
+                roomCode = data.roomCode;
+                document.getElementById('lobby').innerText = `Room Code: ${roomCode}`;
+            });
+        }
+
+        function joinRoom() {
+            const nickname = document.getElementById('nickname').value;
+            socket = io();
+            socket.emit('joinRoom', { roomCode, nickname });
+            document.getElementById('game').style.display = 'block';
+        }
+
+        window.onload = () => {
+            createRoom();
+            socket = io();
+        };
+    </script>
+</head>
+<body>
+    <div id="starter">
+        <h1>Welcome to the Game!</h1>
+        <input type="text" id="nickname" placeholder="Enter your nickname" />
+        <button onclick="joinRoom()">Play</button>
+    </div>
+    <div id="lobby"></div>
+    <div id="game" style="display:none;">
+        <!-- Game Screen Content -->
+    </div>
+</body>
+</html>
